@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Etilometro Online — Calcolo BAC Personalizzato</title>
-    <meta name="description" content="Calcola il tempo esatto di smaltimento dell'alcol basato su dati bioimpedenziometrici (BIA). Algoritmo worst-case per tolleranza zero, calibrato su misurazioni cliniche personali.">
+    <meta name="description" content="Calcola il tempo esatto di smaltimento dell'alcol con algoritmo farmacocinetico avanzato (Formula di Watson), fattore cibo e disidratazione post-allenamento.">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍺</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,16 +19,156 @@
         <div class="hero-content">
             <div class="hero-badge">⚖️ Art. 186-bis CdS · Tolleranza Zero</div>
             <h1>Etilometro <span class="accent">Online</span></h1>
-            <p class="hero-subtitle">Calcolo farmacocinetico personalizzato del tempo di smaltimento dell'alcol<br>basato su Analisi di Impedenza Bioelettrica (BIA)</p>
+            <p class="hero-subtitle">Calcolo farmacocinetico personalizzato del tempo di smaltimento dell'alcol<br>Formula di Watson · Fattore Cibo · Stato di Idratazione</p>
             <div class="hero-tags">
-                <span class="tag">🔬 Dati BIA Reali</span>
+                <span class="tag">🔬 Formula di Watson</span>
                 <span class="tag">⚠️ Caso Peggiore</span>
                 <span class="tag">🚫 Target 0.00 g/L</span>
+                <span class="tag">🍽️ Fattore Cibo</span>
+                <span class="tag">⚡ Post-Allenamento</span>
             </div>
         </div>
     </header>
 
     <main>
+
+        <!-- ═══════════════════ PROFILO PERSONALE ═══════════════════ -->
+        <section id="profileSection" class="section">
+            <h2 class="section-title"><span class="section-icon">👤</span> Profilo Personale</h2>
+            <p class="section-desc">Inserisci i tuoi dati per calcolare in modo preciso la TBW (Acqua Corporea Totale) tramite la Formula di Watson. I dati vengono salvati automaticamente nel browser.</p>
+
+            <div class="profile-card glass-card">
+
+                <!-- Sesso -->
+                <div class="profile-row">
+                    <div class="profile-field">
+                        <label class="profile-label">Sesso Biologico</label>
+                        <div class="sex-toggle">
+                            <label class="sex-option">
+                                <input type="radio" name="sex" value="M" checked>
+                                <span class="sex-btn"><span class="sex-icon">♂</span> Maschio</span>
+                            </label>
+                            <label class="sex-option">
+                                <input type="radio" name="sex" value="F">
+                                <span class="sex-btn"><span class="sex-icon">♀</span> Femmina</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dati antropometrici -->
+                <div class="profile-row">
+                    <div class="profile-field">
+                        <label class="profile-label" for="profileAge">Età (anni)</label>
+                        <input type="number" id="profileAge" class="profile-input" value="21" min="16" max="99" placeholder="21">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profileWeight">Peso (kg)</label>
+                        <input type="number" id="profileWeight" class="profile-input" value="72" min="30" max="250" step="0.1" placeholder="72">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="profileHeight">Altezza (cm)</label>
+                        <input type="number" id="profileHeight" class="profile-input" value="175" min="100" max="230" placeholder="175">
+                    </div>
+                </div>
+
+                <!-- Valori calcolati in tempo reale -->
+                <div class="profile-computed">
+                    <div class="computed-item">
+                        <div class="computed-label">💧 TBW (Formula Watson)</div>
+                        <div class="computed-value" id="displayTBW">—</div>
+                    </div>
+                    <div class="computed-item">
+                        <div class="computed-label">🧪 Volume Distribuzione (Vd)</div>
+                        <div class="computed-value" id="displayVD">—</div>
+                    </div>
+                    <div class="computed-item">
+                        <div class="computed-label">🍽️ Fattore Assorbimento (f)</div>
+                        <div class="computed-value" id="displayFbio">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Stato Stomaco ── -->
+            <div class="context-card glass-card">
+                <h3 class="context-title"><span>🍽️</span> Cosa hai mangiato?</h3>
+                <p class="context-desc">Il cibo rallenta l'assorbimento gastrico e riduce il picco alcolemico. Scegli la condizione più vicina alla realtà.</p>
+
+                <div class="food-selector">
+                    <button class="food-btn active" data-food="empty" id="foodEmpty">
+                        <span class="food-icon">🚫</span>
+                        <span class="food-name">Stomaco Vuoto</span>
+                        <span class="food-detail">Assorbimento max · picco in ~30 min</span>
+                        <span class="food-factor">f = 1.00</span>
+                    </button>
+                    <button class="food-btn" data-food="light" id="foodLight">
+                        <span class="food-icon">🥗</span>
+                        <span class="food-name">Pasto Leggero</span>
+                        <span class="food-detail">Insalata, frutta, snack · picco in ~60 min</span>
+                        <span class="food-factor">f = 0.85 (−15%)</span>
+                    </button>
+                    <button class="food-btn" data-food="full" id="foodFull">
+                        <span class="food-icon">🍖</span>
+                        <span class="food-name">Pasto Abbondante</span>
+                        <span class="food-detail">Pasta, carne, pizza · picco in ~90 min</span>
+                        <span class="food-factor">f = 0.70 (−30%)</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── Stato Allenamento ── -->
+            <div class="context-card glass-card workout-card">
+                <div class="workout-header">
+                    <div class="workout-info">
+                        <h3 class="context-title"><span>⚡</span> Bevuto dopo l'allenamento?</h3>
+                        <p class="context-desc">L'allenamento non accelera lo smaltimento, ma causa <strong>disidratazione</strong>. Con meno acqua corporea, l'alcol si concentra di più nel sangue. Tuttavia, bere acqua durante l'allenamento compensa parzialmente questa perdita.</p>
+                    </div>
+                    <label class="toggle-switch" for="workoutToggle" aria-label="Post-allenamento">
+                        <input type="checkbox" id="workoutToggle">
+                        <span class="toggle-track">
+                            <span class="toggle-thumb"></span>
+                        </span>
+                    </label>
+                </div>
+                <div class="workout-badge inactive" id="workoutBadge">Idratazione normale &mdash; effetti allenamento non considerati</div>
+
+                <!-- Dettagli allenamento (visibili solo se workout attivo) -->
+                <div class="workout-extras" id="workoutExtras" style="display:none;">
+
+                    <div class="workout-extra-field">
+                        <label class="profile-label" for="hydrationWater">
+                            💧 Acqua bevuta durante workout (mL)
+                            <span class="field-hint">Es. 800 mL con Hydrafit</span>
+                        </label>
+                        <div class="workout-input-row">
+                            <input type="number" id="hydrationWater" class="profile-input" value="800"
+                                   min="0" max="3000" step="50" placeholder="800">
+                            <span class="unit-badge">mL</span>
+                        </div>
+                        <p class="field-note">L'acqua assorbita espande il tuo volume di distribuzione, riducendo la concentrazione alcolica. Hydrafit (soluzione ipotonica) è assorbita al ~92%.</p>
+                    </div>
+
+                    <div class="workout-extra-field">
+                        <div class="amino-toggle-row">
+                            <div class="amino-info">
+                                <label class="profile-label" for="aminoToggle">
+                                    💪 Aminoacidi pre-allenamento (NutriXAm 7.2g)
+                                </label>
+                                <p class="field-note">Creano un substrato gastrico che rallenta leggermente l'assorbimento dell'alcol (+15 min al picco, ~3% riduzione BAC).</p>
+                            </div>
+                            <label class="toggle-switch" for="aminoToggle">
+                                <input type="checkbox" id="aminoToggle" checked>
+                                <span class="toggle-track">
+                                    <span class="toggle-thumb"></span>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </section>
 
         <!-- ═══════════════════ CALCOLATORE ═══════════════════ -->
         <section id="calculator" class="section">
@@ -81,7 +221,7 @@
             <!-- Per-drink time info notice -->
             <div class="time-info-notice">
                 <span class="time-info-icon">🕐</span>
-                Puoi impostare l'orario di inizio e fine per ogni singola bevanda direttamente nella lista qui sotto.
+                Puoi impostare l'orario di inizio e fine per ogni singola bevanda direttamente nella lista.
             </div>
 
             <!-- Calculate button -->
@@ -98,7 +238,7 @@
                 <div class="result-card glass-card result-bac" id="resultCardBac">
                     <div class="result-label">Picco BAC Stimato (C₀)</div>
                     <div class="result-value" id="resultBac">—</div>
-                    <div class="result-unit">g/L</div>
+                    <div class="result-unit">g/L di sangue</div>
                     <div class="risk-badge" id="riskBadge"></div>
                 </div>
 
@@ -115,9 +255,12 @@
                 </div>
             </div>
 
+            <!-- Drug Warnings (populated by JS) -->
+            <div id="drugWarningsContainer" class="drug-warnings-container" style="display:none;"></div>
+
             <!-- BAC Chart -->
             <div class="chart-container glass-card">
-                <h3>Curva di Decadimento del Tasso Alcolemico</h3>
+                <h3>📈 Curva di Assorbimento e Decadimento del Tasso Alcolemico</h3>
                 <div class="chart-wrapper">
                     <canvas id="bacChart"></canvas>
                 </div>
@@ -131,66 +274,14 @@
 
             <!-- Warning -->
             <div class="disclaimer-box">
-                <p>⚠️ <strong>ATTENZIONE:</strong> La disidratazione (sport, caldo, sudorazione) riduce l'acqua corporea e <em>concentra maggiormente</em> l'alcol nel sangue, allungando i tempi reali di smaltimento rispetto a queste stime. Assicurati di essere ben idratato.</p>
+                <p>⚠️ <strong>ATTENZIONE:</strong> La disidratazione (sport, caldo, sudorazione), i farmaci e le patologie epatiche alterano i tempi reali rispetto a queste stime. Il calcolo è un caso peggiore teorico: <em>l'unico modo sicuro per guidare è non consumare alcolici</em>.</p>
             </div>
         </section>
 
         <!-- ═══════════════════ DATI BIA ═══════════════════ -->
         <section id="biaData" class="section">
             <h2 class="section-title"><span class="section-icon">🔬</span> Dati Bioimpedenziometrici (BIA)</h2>
-            <p class="section-desc">Parametri clinici misurati con analizzatore vettoriale Akern (Bodygram Weight Control), utilizzati dall'algoritmo di calcolo.</p>
-
-            <!-- Profilo Antropometrico -->
-            <div class="bia-group">
-                <h3 class="bia-group-title">📏 Profilo Antropometrico</h3>
-                <div class="bia-cards">
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">72.0 <small>kg</small></div>
-                        <div class="bia-label">Peso Corporeo</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">175.0 <small>cm</small></div>
-                        <div class="bia-label">Altezza</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">23.5 <small>kg/m²</small></div>
-                        <div class="bia-label">BMI</div>
-                        <div class="bia-note">Normopeso</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">21 <small>anni</small></div>
-                        <div class="bia-label">Età</div>
-                        <div class="bia-note">Tolleranza Zero</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Acqua Corporea -->
-            <div class="bia-group">
-                <h3 class="bia-group-title">💧 Acqua Corporea</h3>
-                <div class="bia-cards">
-                    <div class="bia-card glass-card bia-highlight">
-                        <div class="bia-value">45.4 <small>L</small></div>
-                        <div class="bia-label">Acqua Corporea Totale (TBW)</div>
-                        <div class="bia-note">Dato cardine dell'algoritmo</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">26.4 <small>L</small></div>
-                        <div class="bia-label">Acqua Intracellulare (ICW)</div>
-                        <div class="bia-note">58.1% della TBW</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">19.0 <small>L</small></div>
-                        <div class="bia-label">Acqua Extracellulare (ECW)</div>
-                        <div class="bia-note">41.9% della TBW</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">73.1 <small>%</small></div>
-                        <div class="bia-label">Idratazione FFM (TBW/FFM)</div>
-                        <div class="bia-note">Ref: 73.2% (Pace-Rathbun) ✓</div>
-                    </div>
-                </div>
-            </div>
+            <p class="section-desc">Parametri clinici di riferimento misurati con analizzatore vettoriale Akern (Bodygram Weight Control).</p>
 
             <!-- Composizione Corporea -->
             <div class="bia-group">
@@ -212,6 +303,33 @@
                 </div>
             </div>
 
+            <!-- Acqua Corporea -->
+            <div class="bia-group">
+                <h3 class="bia-group-title">💧 Acqua Corporea (BIA)</h3>
+                <div class="bia-cards">
+                    <div class="bia-card glass-card bia-highlight">
+                        <div class="bia-value">45.4 <small>L</small></div>
+                        <div class="bia-label">Acqua Corporea Totale (TBW)</div>
+                        <div class="bia-note">Misurazione BIA di riferimento</div>
+                    </div>
+                    <div class="bia-card glass-card">
+                        <div class="bia-value">26.4 <small>L</small></div>
+                        <div class="bia-label">Acqua Intracellulare (ICW)</div>
+                        <div class="bia-note">58.1% della TBW</div>
+                    </div>
+                    <div class="bia-card glass-card">
+                        <div class="bia-value">19.0 <small>L</small></div>
+                        <div class="bia-label">Acqua Extracellulare (ECW)</div>
+                        <div class="bia-note">41.9% della TBW</div>
+                    </div>
+                    <div class="bia-card glass-card">
+                        <div class="bia-value">73.1 <small>%</small></div>
+                        <div class="bia-label">Idratazione FFM (TBW/FFM)</div>
+                        <div class="bia-note">Ref: 73.2% (Pace-Rathbun) ✓</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Parametri Elettrofisici -->
             <div class="bia-group">
                 <h3 class="bia-group-title">⚡ Parametri Elettrofisici</h3>
@@ -228,33 +346,6 @@
                         <div class="bia-value">7.5 <small>°</small></div>
                         <div class="bia-label">Angolo di Fase (PhA)</div>
                         <div class="bia-note">Eccellente (ref: 5-7°)</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Parametri Farmacocinetici Derivati -->
-            <div class="bia-group">
-                <h3 class="bia-group-title">⚗️ Parametri Farmacocinetici (Algoritmo)</h3>
-                <div class="bia-cards">
-                    <div class="bia-card glass-card bia-highlight">
-                        <div class="bia-value">55.03 <small>L</small></div>
-                        <div class="bia-label">Volume di Distribuzione (V<sub>d</sub>)</div>
-                        <div class="bia-note">TBW / F<sub>water</sub> = 45.4 / 0.825</div>
-                    </div>
-                    <div class="bia-card glass-card bia-highlight">
-                        <div class="bia-value">0.10 <small>g/L/h</small></div>
-                        <div class="bia-label">Tasso Eliminazione (β<sub>min</sub>)</div>
-                        <div class="bia-note">Limite inferiore clinico</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">100 <small>%</small></div>
-                        <div class="bia-label">Biodisponibilità (f)</div>
-                        <div class="bia-note">Stomaco vuoto (worst-case)</div>
-                    </div>
-                    <div class="bia-card glass-card">
-                        <div class="bia-value">+1.5 <small>ore</small></div>
-                        <div class="bia-label">Buffer di Sicurezza</div>
-                        <div class="bia-note">1.0h assorbimento + 0.5h coda</div>
                     </div>
                 </div>
             </div>
@@ -329,7 +420,7 @@
                 <div class="legal-content">
                     <p>Gli etilometri delle forze dell'ordine possiedono un margine di tolleranza del <strong>4%</strong> (o ±0.016 g/L per misurazioni &lt; 0.40 g/L). Tuttavia, in regime di tolleranza zero, le corti considerano punibile <strong>qualsiasi rilevazione</strong> al di sopra del limite di rilevabilità dello strumento.</p>
                     <p>Il metabolismo umano produce fisiologicamente <strong>etanolo endogeno</strong> (0.001–0.010 g/L) tramite fermentazione microbica intestinale, che normalmente non viene rilevato dagli etilometri stradali.</p>
-                    <p>Il buffer di sicurezza di +0.5 ore nell'algoritmo assorbe sia la coda cinetica che l'incertezza strumentale.</p>
+                    <p>Il buffer di sicurezza di +1 ora nell'algoritmo assorbe sia la coda cinetica che l'incertezza strumentale.</p>
                 </div>
             </details>
         </section>
@@ -344,7 +435,7 @@
                 <p><strong>L'unico modo sicuro per guidare è non consumare alcolici.</strong></p>
             </div>
             <div class="footer-meta">
-                <p>&copy; 2026 Etilometro Online · Algoritmo basato su dati BIA · Modello farmacocinetico worst-case</p>
+                <p>&copy; 2026 Etilometro Online · Algoritmo farmacocinetico avanzato · Formula di Watson · Modello worst-case</p>
             </div>
         </div>
     </footer>
