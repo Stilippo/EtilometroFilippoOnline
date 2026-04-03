@@ -1490,6 +1490,7 @@ DEVI rispondere *ESCLUSIVAMENTE* outputtando un JSON valido con questa esatta st
         
         if (jsonResp.candidates && jsonResp.candidates[0].content) {
             let resText = jsonResp.candidates[0].content.parts[0].text;
+            resText = resText.replace(/```json/gi, '').replace(/```/g, '').trim();
             return JSON.parse(resText);
         }
     } catch(err) {
