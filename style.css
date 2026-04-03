@@ -1081,3 +1081,44 @@ input[type="datetime-local"] { color-scheme: dark; }
     .amino-toggle-row { flex-direction: row; align-items: flex-start; }
     .drug-warning-header { flex-direction: column; gap: 0.3rem; }
 }
+
+/* ═══════════════════ SYNC MODAL ═══════════════════ */
+.sync-modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.sync-modal-content {
+    background: var(--bg-secondary);
+    max-width: 400px;
+    width: 100%;
+    position: relative;
+    text-align: center;
+    border: 1px solid var(--border-accent);
+}
+
+.sync-modal-close {
+    position: absolute;
+    top: 1rem; right: 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.sync-modal-close:hover { color: var(--danger); }
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}

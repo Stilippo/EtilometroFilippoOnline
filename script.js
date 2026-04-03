@@ -77,6 +77,86 @@ const PRESET_DRINKS = [
 // ── Stato Applicazione ──
 let consumedDrinks = [];
 let drinkIdCounter = 0;
+let currentSimulation = null;
+
+function saveDrinks() {
+    try {
+        localStorage.setItem('etilometro_drinks', JSON.stringify(consumedDrinks));
+    } catch (e) { /* private browsing */ }
+}
+
+function loadDrinks() {
+    try {
+        const saved = localStorage.getItem('etilometro_drinks');
+        if (saved) {
+            consumedDrinks = JSON.parse(saved);
+            drinkIdCounter = consumedDrinks.length > 0 ? Math.max(...consumedDrinks.map(d => d.uid)) : 0;
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function attemptSyncFromURL() {
+    const params = new URLSearchParams(window.location.search);
+    const syncData = params.get('sync');
+    if (syncData) {
+        try {
+            const decoded = decodeURIComponent(escape(atob(syncData)));
+            const data = JSON.parse(decoded);
+            if (data.profile) userProfile = { ...userProfile, ...data.profile };
+            if (data.drinks) {
+                consumedDrinks = data.drinks;
+                drinkIdCounter = consumedDrinks.length > 0 ? Math.max(...consumedDrinks.map(d => d.uid)) : 0;
+            }
+            saveProfile();
+            saveDrinks();
+            
+            // Ripulisce l'URL
+            const url = new URL(window.location);
+            url.searchParams.delete('sync');
+            window.history.replaceState({}, document.title, url);
+        } catch (e) {
+            console.error('Errore sincronizzazione:', e);
+            alert('Il link di sincronizzazione non è valido o è corrotto.');
+        }
+    }
+}
+
+function generateSyncLink() {
+    const data = { profile: userProfile, drinks: consumedDrinks };
+    const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    const url = new URL(window.location.href.split('?')[0]);
+    url.searchParams.set('sync', b64);
+    return url.toString();
+}
+
+function showSyncModal() {
+    const link = generateSyncLink();
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(link)}`;
+    
+    let modal = document.getElementById('syncModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'syncModal';
+        modal.className = 'sync-modal-overlay';
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML = `
+        <div class="sync-modal-content glass-card">
+            <button class="sync-modal-close">✕</button>
+            <h3>📱 Continua sul Telefono</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">Inquadra questo QR Code con il tuo smartphone per ritrovare le tue consumazioni e il tuo profilo sincronizzati all'istante.</p>
+            <div style="text-align:center; padding: 1rem; background: white; border-radius: 8px; display:inline-block; margin: 0.5rem 0;">
+                <img src="${qrUrl}" alt="QR Code" width="200" height="200">
+            </div>
+            <div style="margin-top: 1rem;">
+                <input type="text" value="${link}" readonly style="width:100%; padding: 0.5rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; margin-bottom: 0.5rem; font-size: 0.8rem;" id="syncLinkInput">
+                <button class="btn btn-secondary btn-large" style="padding: 0.7rem; font-size: 0.9rem" onclick="document.getElementById('syncLinkInput').select(); document.execCommand('copy'); alert('Link copiato!');">📋 Copia Link</button>
+            </div>
+        </div>
+    `;
+    modal.style.display = 'flex';
+    modal.querySelector('.sync-modal-close').addEventListener('click', () => modal.style.display = 'none');
+}
 
 /**
  * Calcola l'età esatta di Filippo in base alla data di nascita.
@@ -432,20 +512,25 @@ function addDrink(name, icon, volumeMl, abvPercent) {
         startTime: now,
         endTime: now,
     });
+    saveDrinks();
     renderConsumedList();
     updateCalculateButton();
 }
 
 function removeDrink(uid) {
     consumedDrinks = consumedDrinks.filter(d => d.uid !== uid);
+    saveDrinks();
     renderConsumedList();
     updateCalculateButton();
 }
 
 function clearAllDrinks() {
     consumedDrinks = [];
+    saveDrinks();
     renderConsumedList();
     updateCalculateButton();
+    const resultsSection = document.getElementById('results');
+    if (resultsSection) resultsSection.style.display = 'none';
 }
 
 function getTotalAlcoholGrams() {
@@ -565,7 +650,10 @@ function renderConsumedList() {
             const uid   = parseInt(input.dataset.uid);
             const field = input.dataset.field;
             const drink = consumedDrinks.find(d => d.uid === uid);
-            if (drink && input.value) drink[field] = input.value;
+            if (drink && input.value) { 
+                drink[field] = input.value; 
+                saveDrinks(); 
+            }
         });
     });
 
@@ -578,7 +666,10 @@ function renderConsumedList() {
             if (input) {
                 input.value = now;
                 const drink = consumedDrinks.find(d => d.uid === uid);
-                if (drink) drink[field] = now;
+                if (drink) { 
+                    drink[field] = now; 
+                    saveDrinks(); 
+                }
             }
             btn.classList.add('now-flash');
             setTimeout(() => btn.classList.remove('now-flash'), 400);
@@ -598,42 +689,158 @@ function updateCalculateButton() {
 // CALCOLO E VISUALIZZAZIONE RISULTATI
 // ═══════════════════════════════════════════════
 
+/**
+ * Esegue la simulazione numerica analizzando l'assorbimento ed eliminazione 
+ * dell'alcol su base mensile (o minutale).
+ * Restituisce l'array di riepilogo cronologico (history) e le metriche principali.
+ */
+function simulateBAC(drinks, params) {
+    if (drinks.length === 0) return null;
+
+    const { vd, fBio, peakDelayHours } = params;
+    
+    // Ordina i drinks per momento di assunzione
+    let sortedDrinks = [...drinks].sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    
+    // Determina il momento iniziale della simulazione
+    const simStartTime = new Date(sortedDrinks[0].startTime).getTime();
+    
+    const peakDelayMs = peakDelayHours * 3600000;
+    
+    let history = [];
+    let currentMs = simStartTime;
+    // Tasso eliminazione etanolo al minuto (g/L/min)
+    const elimPerMin = PHARMA.BETA_MIN / 60;
+    
+    let currentBAC = 0;
+    
+    // Tracciamo quanto alcol è stato già assorbito da ogni bevanda
+    let absorbedFractions = new Array(sortedDrinks.length).fill(0);
+    
+    // Per gestire il caso in cui siamo a 0 da ore e beviamo ancora, 
+    // la simulazione deve girare finché currentBAC > 0 OPPURE ci sono ancora drink da assorbire
+    let maxIters = 72 * 60; // Max 72 ore di simulazione per sicurezza
+    let iters = 0;
+    
+    let peakBAC = 0;
+    let peakMs = currentMs;
+    
+    // Aggiungi punto iniziale
+    history.push({ time: new Date(currentMs), bac: 0 });
+    
+    // Precalcolo orari di assorbimento
+    const cachedDrinks = sortedDrinks.map(drink => {
+        const startMs = new Date(drink.startTime).getTime();
+        const endMs = new Date(drink.endTime).getTime();
+        const absorbStartMs = startMs;
+        const absorbEndMs = Math.max(endMs, startMs + 1000) + peakDelayMs; 
+        const totalBacContrib = (drink.grams * fBio) / vd;
+        return { absorbStartMs, absorbEndMs, totalBacContrib };
+    });
+
+    // Iteriamo di minuto in minuto
+    while (iters < maxIters) {
+        currentMs += 60000; // Avanza 1 min
+        let anyAbsorbing = false;
+        
+        // Fase 1: Assorbimento
+        for (let i = 0; i < cachedDrinks.length; i++) {
+            const cd = cachedDrinks[i];
+            
+            if (currentMs > cd.absorbStartMs && currentMs <= cd.absorbEndMs) {
+                anyAbsorbing = true;
+            } else if (currentMs <= cd.absorbStartMs) {
+                anyAbsorbing = true; // Still waiting for this drink
+            }
+            
+            let newFraction = 0;
+            if (currentMs <= cd.absorbStartMs) {
+                newFraction = 0;
+            } else if (currentMs >= cd.absorbEndMs) {
+                newFraction = 1;
+            } else {
+                const x = (currentMs - cd.absorbStartMs) / Math.max(1, cd.absorbEndMs - cd.absorbStartMs);
+                newFraction = x * x * (3 - 2 * x); // smoothstep
+            }
+            
+            const oldFraction = absorbedFractions[i];
+            if (newFraction > oldFraction) {
+                const addedFraction = newFraction - oldFraction;
+                const addedBac = cd.totalBacContrib * addedFraction;
+                currentBAC += addedBac;
+                absorbedFractions[i] = newFraction;
+            }
+        }
+        
+        // Fase 2: Eliminazione
+        if (currentBAC > 0) {
+            currentBAC -= elimPerMin;
+            if (currentBAC < 0) currentBAC = 0;
+        }
+        
+        // Traccia peak
+        if (currentBAC > peakBAC) {
+            peakBAC = currentBAC;
+            peakMs = currentMs;
+        }
+        
+        // Registra storicamente ogni 2 minuti è un buon compromesso
+        if (iters % 2 === 0) {
+            history.push({ time: new Date(currentMs), bac: currentBAC });
+        }
+        
+        // Uscita
+        if (currentBAC <= 0.0001 && !anyAbsorbing) {
+            currentBAC = 0;
+            history.push({ time: new Date(currentMs), bac: 0 });
+            break;
+        }
+        
+        iters++;
+    }
+    
+    // Tempo di zero effettivo 
+    const zeroMs = history[history.length - 1].time.getTime();
+
+    const zeroBACTime = new Date(zeroMs);
+    const safeDriveTime = peakBAC > 0 ? new Date(zeroMs + PHARMA.BUFFER_HOURS * 3600000) : new Date();
+
+    return { 
+        peakBAC,
+        peakTime: new Date(peakMs),
+        zeroBACTime,
+        safeDriveTime,
+        history,
+        totalWaitHours: peakBAC > 0 ? Math.max(0, (safeDriveTime.getTime() - Date.now()) / 3600000) : 0
+    };
+}
+
 function performCalculation() {
     syncDrinkTimesFromDOM();
     syncProfileFromDOM();
 
-    // Validate: ogni bevanda deve avere endTime
-    let missingEnd = consumedDrinks.some(d => !d.endTime);
+    let missingEnd = consumedDrinks.some(d => !d.endTime || !d.startTime);
     if (missingEnd) {
-        const firstBadInput = document.querySelector('.drink-time-input[data-field="endTime"]');
-        if (firstBadInput) {
-            firstBadInput.focus();
-            firstBadInput.style.borderColor = '#ff4757';
-            setTimeout(() => firstBadInput.style.borderColor = '', 2000);
-        }
+        alert("Assicurati di inserire orario inizio e fine per tutte le bevande.");
         return;
     }
 
-    // Recupera parametri farmacocinetici personalizzati
     const params = calcPharmaParams();
-    const { tbw, vd, fBio, peakDelayHours, workoutNote } = params;
 
-    const endTime   = getGlobalEndTime();
-    const startTime = getGlobalStartTime();
-    const drinkingDurationMin = calcDurationMinutes(startTime, endTime);
+    const sim = simulateBAC(consumedDrinks, params);
+    if (!sim) {
+        return;
+    }
+    
+    currentSimulation = sim;
 
-    const totalA    = getTotalAlcoholGrams();
-    const peakBAC   = calcPeakBAC(totalA, vd, fBio);
-    const elimTime  = calcEliminationTime(peakBAC);
-    const totalWait = calcTotalWaitTime(peakDelayHours, elimTime);
-    const safeDriveTime = calcSafeDriveTime(totalWait, endTime);
+    const { peakBAC, safeDriveTime, history } = sim;
+    const totalA = getTotalAlcoholGrams();
 
-    // Show results section
     const resultsSection = document.getElementById('results');
     resultsSection.style.display = 'block';
 
-    // BAC
-    document.getElementById('resultBac').textContent = peakBAC.toFixed(3);
+    document.getElementById('resultBac').textContent = sim.peakBAC.toFixed(3);
     const riskBadge = document.getElementById('riskBadge');
     if (peakBAC > 1.5) {
         riskBadge.textContent = '⛔ REATO GRAVE — Revoca patente';
@@ -649,30 +856,24 @@ function performCalculation() {
         riskBadge.className = 'risk-badge danger';
     }
 
-    // Time
-    document.getElementById('resultTime').textContent = formatHoursMinutes(totalWait);
+    const msToWait = safeDriveTime.getTime() - Date.now();
+    if (msToWait <= 0) {
+        document.getElementById('resultTime').innerHTML = '<span style="color:#00d68f">SMALTITO ✔</span>';
+        document.getElementById('resultDriveTime').textContent = '--';
+        document.getElementById('resultDriveDate').textContent = 'Sei già idoneo alla guida';
+    } else {
+        document.getElementById('resultTime').textContent = formatHoursMinutes(msToWait / 3600000);
+        document.getElementById('resultDriveTime').textContent = formatTime(safeDriveTime);
+        document.getElementById('resultDriveDate').textContent  = formatDate(safeDriveTime);
+    }
 
-    // Drive time
-    document.getElementById('resultDriveTime').textContent = formatTime(safeDriveTime);
-    document.getElementById('resultDriveDate').textContent  = formatDate(safeDriveTime);
-
-    // Drug Warnings
     renderDrugWarnings();
-    // Breakdown
-    renderBreakdown(totalA, peakBAC, elimTime, totalWait, safeDriveTime,
-                    startTime, endTime, drinkingDurationMin,
-                    tbw, vd, fBio, peakDelayHours, workoutNote);
+    renderBreakdownNumerical(totalA, sim, params);
+    drawBACChartNumerical(sim.history, safeDriveTime);
 
-    // Chart
-    drawBACChart(peakBAC, peakDelayHours, elimTime, totalWait);
-
-    // Scroll to results
     resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/**
- * Renderizza i box di interazione farmaci nella sezione risultati.
- */
 function renderDrugWarnings() {
     const container = document.getElementById('drugWarningsContainer');
     if (!container) return;
@@ -704,19 +905,14 @@ function renderDrugWarnings() {
     `;
 }
 
-// ── Render Breakdown ──
-function renderBreakdown(totalA, peakBAC, elimTime, totalWait, safeDriveTime,
-                         startTime, endTime, drinkingDurationMin,
-                         tbw, vd, fBio, peakDelayHours, workoutNote) {
+function renderBreakdownNumerical(totalA, sim, params) {
     const container = document.getElementById('breakdownContent');
 
     const drinksRows = consumedDrinks.map(d => {
         const s = new Date(d.startTime);
         const e = new Date(d.endTime);
         const dur = calcDurationMinutes(s, e);
-        const durStr = dur > 0
-            ? (dur >= 60 ? `${Math.floor(dur/60)}h ${Math.round(dur%60)}min` : `${Math.round(dur)} min`)
-            : '—';
+        const durStr = dur > 0 ? (dur >= 60 ? `${Math.floor(dur/60)}h ${Math.round(dur%60)}min` : `${Math.round(dur)} min`) : '—';
         return `
             <tr>
                 <td>${d.icon} ${d.name}</td>
@@ -729,139 +925,61 @@ function renderBreakdown(totalA, peakBAC, elimTime, totalWait, safeDriveTime,
         `;
     }).join('');
 
-    const durH = Math.floor(drinkingDurationMin / 60);
-    const durM = Math.round(drinkingDurationMin % 60);
-    const durStr = durH > 0 ? `${durH}h ${durM}min` : `${durM} min`;
-
     const foodLabels = { empty: '🍽️ Stomaco Vuoto (f=1.00)', light: '🥗 Pasto Leggero (f=0.85)', full: '🍖 Pasto Abbondante (f=0.70)' };
     const foodLabel = foodLabels[userProfile.food] || '—';
 
     container.innerHTML = `
-        <!-- Profilo usato nel calcolo -->
         <div class="breakdown-step">
             <div class="step-number">👤</div>
             <div class="step-content">
-                <div class="step-label">Profilo Utilizzato nel Calcolo</div>
+                <div class="step-label">Profilo Utilizzato</div>
                 <div class="step-result">
-                    ${userProfile.sex === 'M' ? '♂ Maschio' : '♀ Femmina'} ·
-                    ${userProfile.age} anni · ${userProfile.weight} kg · ${userProfile.height} cm
+                    ${userProfile.sex === 'M' ? '♂ Maschio' : '♀ Femmina'} · ${userProfile.age} anni · ${userProfile.weight} kg · ${userProfile.height} cm
                     ${userProfile.workout ? ' · <span style="color:var(--warning)">⚡ Post-Allenamento</span>' : ''}
                     · ${foodLabel}
                 </div>
             </div>
         </div>
 
-        <!-- Session Breakdown -->
         <div class="breakdown-step">
             <div class="step-number">🍽️</div>
             <div class="step-content">
-                <div class="step-label">Dettaglio Bevande Consumate</div>
+                <div class="step-label">Riepilogo Storico Sessione</div>
                 <div class="drink-breakdown-table-wrap">
                     <table class="drink-breakdown-table">
                         <thead>
-                            <tr>
-                                <th>Bevanda</th>
-                                <th>Quantità</th>
-                                <th>Alcol</th>
-                                <th>Inizio</th>
-                                <th>Fine</th>
-                                <th>Durata</th>
-                            </tr>
+                            <tr><th>Bevanda</th><th>Quantità</th><th>Alcol</th><th>Inizio</th><th>Fine</th><th>Durata</th></tr>
                         </thead>
-                        <tbody>
-                            ${drinksRows}
-                        </tbody>
+                        <tbody>${drinksRows}</tbody>
                     </table>
                 </div>
                 <div class="step-result" style="margin-top: 0.5rem;">
-                    Sessione: <strong>${formatTime(startTime)}</strong> → <strong>${formatTime(endTime)}</strong>
-                    &nbsp;·&nbsp; Durata: <strong>${durStr}</strong>
+                    Totale alcol ingerito: <strong>${totalA.toFixed(2)} g</strong> · Picco Assoluto: <strong>${sim.peakBAC.toFixed(3)} g/L</strong> alle ${formatTime(sim.peakTime)}
                 </div>
             </div>
         </div>
-
+        
         <div class="breakdown-step">
-            <div class="step-number">1</div>
+            <div class="step-number">⚙️</div>
             <div class="step-content">
-                <div class="step-label">TBW — Formula di Watson (personalizzata)</div>
-                <div class="step-formula">${userProfile.sex === 'M'
-                    ? `TBW = 2.447 − 0.09156×${userProfile.age} + 0.1074×${userProfile.height} + 0.3362×${userProfile.weight}`
-                    : `TBW = −2.097 + 0.1069×${userProfile.height} + 0.2466×${userProfile.weight}`
-                }${workoutNote ? ` − ${(tbw * PHARMA.WORKOUT_DEHYDR / (1 - PHARMA.WORKOUT_DEHYDR)).toFixed(2)} L (allenamento)` : ''}</div>
-                <div class="step-result">TBW = <strong>${tbw.toFixed(2)} L</strong>${workoutNote ? ` <span style="color:var(--warning);font-size:0.8rem">(${workoutNote})</span>` : ''}</div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">2</div>
-            <div class="step-content">
-                <div class="step-label">Volume di Distribuzione (Vd)</div>
-                <div class="step-formula">Vd = TBW / F<sub>water</sub> = ${tbw.toFixed(2)} / ${userProfile.sex === 'M' ? PHARMA.F_WATER : PHARMA.F_WATER_F}</div>
-                <div class="step-result">Vd = <strong>${vd.toFixed(2)} L</strong></div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">3</div>
-            <div class="step-content">
-                <div class="step-label">Massa etanolo puro ingerito</div>
-                <div class="step-formula">A = Σ (Volume × ABV% / 100 × 0.789)</div>
-                <div class="step-result">A = <strong>${totalA.toFixed(2)} g</strong></div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">4</div>
-            <div class="step-content">
-                <div class="step-label">Concentrazione ematica di picco (con fattore cibo f=${fBio.toFixed(2)})</div>
-                <div class="step-formula">C₀ = (A × f<sub>bio</sub>) / Vd = (${totalA.toFixed(2)} × ${fBio.toFixed(2)}) / ${vd.toFixed(2)}</div>
-                <div class="step-result">C₀ = <strong>${peakBAC.toFixed(3)} g/L</strong></div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">5</div>
-            <div class="step-content">
-                <div class="step-label">Ritardo di assorbimento gastrico (basato sul cibo)</div>
-                <div class="step-formula">Δt<sub>peak</sub> = ${formatHoursMinutes(peakDelayHours)} — Il picco è raggiunto dopo l'ultimo sorso</div>
-                <div class="step-result">Fase assorbimento: <strong>+${formatHoursMinutes(peakDelayHours)}</strong></div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">6</div>
-            <div class="step-content">
-                <div class="step-label">Tempo di eliminazione epatica (cinetica ordine zero, β<sub>min</sub>=0.10 g/L/h)</div>
-                <div class="step-formula">T<sub>elim</sub> = C₀ / β<sub>min</sub> = ${peakBAC.toFixed(3)} / ${PHARMA.BETA_MIN}</div>
-                <div class="step-result">T<sub>elim</sub> = <strong>${formatHoursMinutes(elimTime)}</strong> (${elimTime.toFixed(2)} ore)</div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">7</div>
-            <div class="step-content">
-                <div class="step-label">Buffer di sicurezza (coda cinetica + incertezza)</div>
-                <div class="step-formula">Buffer = +${PHARMA.BUFFER_HOURS} ore</div>
-                <div class="step-result">Buffer = <strong>${formatHoursMinutes(PHARMA.BUFFER_HOURS)}</strong></div>
-            </div>
-        </div>
-
-        <div class="breakdown-step">
-            <div class="step-number">✓</div>
-            <div class="step-content">
-                <div class="step-label">Tempo totale di attesa dall'ultimo sorso (${formatTime(endTime)})</div>
-                <div class="step-formula">T<sub>totale</sub> = Δt<sub>peak</sub> + T<sub>elim</sub> + Buffer = ${peakDelayHours.toFixed(2)} + ${elimTime.toFixed(2)} + ${PHARMA.BUFFER_HOURS}</div>
-                <div class="step-result highlight">T<sub>totale</sub> = <strong>${formatHoursMinutes(totalWait)}</strong> — Guida sicura dalle <strong>${formatTime(safeDriveTime)}</strong></div>
+                <div class="step-label">Simulazione Numerica (Minuto per Minuto)</div>
+                <div class="step-formula">Dati elaborati dinamicamente tramite iterazione per gestire sovrapposizione multipla di bevute.</div>
+                <div class="step-result">
+                    TBW = ${params.tbw.toFixed(2)}L, Vd = ${params.vd.toFixed(2)}L<br>
+                    Tasso epatico: -0.10 g/L/h<br>
+                    Ritardo picco (fase digestione): +${formatHoursMinutes(params.peakDelayHours)}<br>
+                    Buffer tolleranza finale aggiunto: +1h
+                </div>
             </div>
         </div>
     `;
 }
 
 // ═══════════════════════════════════════════════
-// GRAFICO BAC (Canvas 2D) — Versione Migliorata
+// GRAFICO BAC (Canvas 2D) — Orari Reali
 // ═══════════════════════════════════════════════
 
-function drawBACChart(peakBAC, peakDelayHours, elimTime, totalWaitHours) {
+function drawBACChartNumerical(history, safeDriveTime) {
     const canvas  = document.getElementById('bacChart');
     const wrapper = canvas.parentElement;
     const dpr     = window.devicePixelRatio || 1;
@@ -875,43 +993,51 @@ function drawBACChart(peakBAC, peakDelayHours, elimTime, totalWaitHours) {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
+    if (!history || history.length === 0) return;
+
     const W = rect.width;
     const H = rect.height;
     const pad = { top: 40, right: 30, bottom: 55, left: 65 };
     const plotW = W - pad.left - pad.right;
     const plotH = H - pad.top  - pad.bottom;
 
-    // ── Asse temporale: da 0 a totalWait + un po' di respiro ──
-    const maxTime = Math.ceil(totalWaitHours + 0.75);
-    // ── Asse BAC: dall'alto fino a 0 ──
-    const maxBAC  = Math.max(peakBAC * 1.2, 0.6);
+    const tStart = history[0].time.getTime();
+    // Vogliamo che l'asse mostri almeno fino al safeDriveTime + 30 minuti extra
+    const safeMs = safeDriveTime.getTime();
+    const tEndRaw = Math.max(safeMs + 1800000, history[history.length-1].time.getTime() + 3600000);
+    const totalDurationMs = tEndRaw - tStart;
+    
+    let maxBAC = 0.6;
+    history.forEach(pt => { if (pt.bac > maxBAC) maxBAC = pt.bac; });
+    maxBAC = maxBAC * 1.2;
 
-    const scaleX = t   => pad.left + (t / maxTime) * plotW;
-    const scaleY = bac => pad.top  + (1 - bac / maxBAC) * plotH;
+    const scaleX = (t) => pad.left + ((t - tStart) / totalDurationMs) * plotW;
+    const scaleY = (bac) => pad.top  + (1 - bac / maxBAC) * plotH;
 
-    // ── PULIZIA ──
+    // PULIZIA
     ctx.clearRect(0, 0, W, H);
 
-    // ── SFONDO GRAFICO con gradiente ──
+    // SFONDO
     const bgGrad = ctx.createLinearGradient(0, pad.top, 0, H - pad.bottom);
     bgGrad.addColorStop(0, 'rgba(20, 20, 50, 0.6)');
     bgGrad.addColorStop(1, 'rgba(10, 10, 25, 0.2)');
     ctx.fillStyle = bgGrad;
-    ctx.beginPath();
-    ctx.roundRect(pad.left, pad.top, plotW, plotH, 6);
-    ctx.fill();
+    ctx.beginPath(); ctx.roundRect(pad.left, pad.top, plotW, plotH, 6); ctx.fill();
 
-    // ── ZONA ROSSA (BAC > 0.5, illegale) ──
+    // ZONA ROSSA
     if (maxBAC > 0.5) {
         const y05 = scaleY(0.5);
-        const dangerGrad = ctx.createLinearGradient(0, pad.top, 0, y05);
-        dangerGrad.addColorStop(0, 'rgba(255, 71, 87, 0.08)');
-        dangerGrad.addColorStop(1, 'rgba(255, 71, 87, 0.02)');
-        ctx.fillStyle = dangerGrad;
-        ctx.fillRect(pad.left, pad.top, plotW, y05 - pad.top);
+        if (y05 > pad.top) { // Ensure rect is positive 
+            const dH = Math.max(0, y05 - pad.top);
+            const dangerGrad = ctx.createLinearGradient(0, pad.top, 0, y05);
+            dangerGrad.addColorStop(0, 'rgba(255, 71, 87, 0.08)');
+            dangerGrad.addColorStop(1, 'rgba(255, 71, 87, 0.02)');
+            ctx.fillStyle = dangerGrad;
+            ctx.fillRect(pad.left, pad.top, plotW, dH);
+        }
     }
 
-    // ── GRIGLIA ──
+    // GRIGLIA Y
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     ctx.lineWidth = 1;
     const bacStep = maxBAC > 1.2 ? 0.25 : maxBAC > 0.6 ? 0.1 : 0.05;
@@ -919,12 +1045,26 @@ function drawBACChart(peakBAC, peakDelayHours, elimTime, totalWaitHours) {
         const y = scaleY(bac);
         ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke();
     }
-    for (let t = 0; t <= maxTime; t += 0.5) {
-        const x = scaleX(t);
+    
+    // GRIGLIA X (Orari reali)
+    ctx.textAlign = 'center';
+    const firstHour = new Date(tStart);
+    firstHour.setMinutes(0, 0, 0);
+    if (firstHour.getTime() < tStart) firstHour.setHours(firstHour.getHours() + 1);
+    
+    let tMark = firstHour.getTime();
+    while (tMark <= tEndRaw) {
+        const x = scaleX(tMark);
         ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, H - pad.bottom); ctx.stroke();
+        
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.font = '500 10px Inter, sans-serif';
+        const d = new Date(tMark);
+        ctx.fillText(formatTime(d), x, H - pad.bottom + 18);
+        tMark += 3600000; // Incrementa di 1h
     }
 
-    // ── LINEA LIMITE 0.5 g/L ──
+    // LINEA LIMITE 0.5 g/L
     if (maxBAC > 0.5) {
         const y05  = scaleY(0.5);
         ctx.strokeStyle = 'rgba(255, 170, 0, 0.5)';
@@ -938,195 +1078,105 @@ function drawBACChart(peakBAC, peakDelayHours, elimTime, totalWaitHours) {
         ctx.fillText('⚠ 0.50 g/L  Limite legale', pad.left + 6, y05 - 5);
     }
 
-    // ── ZONA BUFFER (shaded) ──
-    const xPeak  = scaleX(peakDelayHours);
-    const xZero  = scaleX(peakDelayHours + elimTime);
-    const xSafe  = scaleX(totalWaitHours);
+    // BUFFER ZONE (shaded region from zero to safe)
+    const zeroMs = history[history.length - 1].time.getTime();
+    const xZero = scaleX(zeroMs);
+    const xSafe = scaleX(safeMs);
     if (xZero < xSafe) {
         const bufGrad = ctx.createLinearGradient(xZero, 0, xSafe, 0);
         bufGrad.addColorStop(0, 'rgba(0, 214, 143, 0.08)');
         bufGrad.addColorStop(1, 'rgba(0, 214, 143, 0.02)');
         ctx.fillStyle = bufGrad;
-        ctx.fillRect(xZero, pad.top, xSafe - xZero, plotH);
+        ctx.fillRect(xZero, pad.top, Math.max(0, xSafe - xZero), plotH);
     }
 
-    // ── CURVA BAC: Assorbimento (0 → peakDelay) + Eliminazione (peakDelay → zero) ──
-    // Fase 1: salita (curva sigmoidale semplificata)
-    // Fase 2: discesa lineare (cinetica ordine zero)
-
-    const steps = 400;
-
-    // Area sotto la curva
-    const areaGrad = ctx.createLinearGradient(0, scaleY(peakBAC), 0, scaleY(0));
+    // CURVA BAC
+    const peakHistory = Math.max(...history.map(h => h.bac));
+    const areaGrad = ctx.createLinearGradient(0, scaleY(peakHistory), 0, scaleY(0));
     areaGrad.addColorStop(0, 'rgba(255, 71, 87, 0.20)');
     areaGrad.addColorStop(0.4, 'rgba(255, 170, 0, 0.10)');
     areaGrad.addColorStop(1, 'rgba(0, 214, 143, 0.03)');
 
     ctx.fillStyle = areaGrad;
     ctx.beginPath();
-    ctx.moveTo(scaleX(0), scaleY(0));
-
-    for (let i = 0; i <= steps; i++) {
-        const t   = (i / steps) * (peakDelayHours + elimTime);
-        const bac = bacAtTime(t, peakBAC, peakDelayHours, elimTime);
-        if (i === 0) ctx.lineTo(scaleX(0), scaleY(0));
-        ctx.lineTo(scaleX(t), scaleY(bac));
+    ctx.moveTo(scaleX(tStart), scaleY(0));
+    for (let i = 0; i < history.length; i++) {
+        ctx.lineTo(scaleX(history[i].time.getTime()), scaleY(history[i].bac));
     }
-    ctx.lineTo(scaleX(peakDelayHours + elimTime), scaleY(0));
+    const lastT = history[history.length-1].time.getTime();
+    ctx.lineTo(scaleX(lastT), scaleY(0));
     ctx.closePath();
     ctx.fill();
 
-    // Linea principale della curva
+    // Linea principale
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    for (let i = 0; i <= steps; i++) {
-        const t   = (i / steps) * (peakDelayHours + elimTime);
-        const bac = bacAtTime(t, peakBAC, peakDelayHours, elimTime);
-        const x   = scaleX(t);
-        const y   = scaleY(bac);
-
-        // Colore gradiente lungo la curva
-        const ratio = bac / peakBAC;
-        if (ratio > 0.7) {
-            ctx.strokeStyle = '#ff4757';
-        } else if (ratio > 0.35) {
-            ctx.strokeStyle = '#ffaa00';
-        } else {
-            ctx.strokeStyle = '#00d68f';
-        }
-
-        if (i === 0) { ctx.beginPath(); ctx.moveTo(x, y); }
-        else {
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        }
+    for (let i = 0; i < history.length - 1; i++) {
+        const t1 = history[i].time.getTime();
+        const t2 = history[i+1].time.getTime();
+        const b1 = history[i].bac;
+        const b2 = history[i+1].bac;
+        
+        const ratio = b1 / peakHistory;
+        if (ratio > 0.7) ctx.strokeStyle = '#ff4757';
+        else if (ratio > 0.35) ctx.strokeStyle = '#ffaa00';
+        else ctx.strokeStyle = '#00d68f';
+        
+        ctx.beginPath();
+        ctx.moveTo(scaleX(t1), scaleY(b1));
+        ctx.lineTo(scaleX(t2), scaleY(b2));
+        ctx.stroke();
     }
 
-    // ── MARKER PICCO ──
-    ctx.fillStyle = '#ff4757';
-    ctx.shadowColor = 'rgba(255, 71, 87, 0.5)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(scaleX(peakDelayHours), scaleY(peakBAC), 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    // SAFE DRIVE MARKER
+    if (xSafe <= W - pad.right + 20) {
+        ctx.strokeStyle = 'rgba(0, 214, 143, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.moveTo(xSafe, pad.top); ctx.lineTo(xSafe, H - pad.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        
+        ctx.fillStyle = '#00d68f';
+        ctx.shadowColor = 'rgba(0, 214, 143, 0.5)';
+        ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(xSafe, scaleY(0), 7, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
 
-    // Etichetta picco
-    const peakLabelX = scaleX(peakDelayHours);
-    const peakLabelY = scaleY(peakBAC);
-    ctx.fillStyle = '#ff4757';
-    ctx.font = 'bold 11px Outfit, sans-serif';
-    ctx.textAlign = peakLabelX > W * 0.6 ? 'right' : 'left';
-    const labelOffset = ctx.textAlign === 'right' ? -10 : 10;
-    // Background pill
-    const label = `PICCO ${peakBAC.toFixed(3)} g/L`;
-    const labelW = ctx.measureText(label).width + 14;
-    const labelH = 18;
-    const lx = peakLabelX + labelOffset - (ctx.textAlign === 'right' ? labelW : 0);
-    ctx.fillStyle = 'rgba(255,71,87,0.15)';
-    ctx.beginPath(); ctx.roundRect(lx, peakLabelY - labelH - 4, labelW, labelH, 4); ctx.fill();
-    ctx.fillStyle = '#ff4757';
-    ctx.fillText(label, peakLabelX + labelOffset, peakLabelY - 8);
-
-    // ── LINEA VERTICALE SAFE-TO-DRIVE ──
-    ctx.strokeStyle = 'rgba(0, 214, 143, 0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    ctx.moveTo(xSafe, pad.top);
-    ctx.lineTo(xSafe, H - pad.bottom);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ── MARKER GUIDA SICURA ──
-    ctx.fillStyle = '#00d68f';
-    ctx.shadowColor = 'rgba(0, 214, 143, 0.5)';
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(xSafe, scaleY(0), 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Etichetta guida sicura
-    ctx.font = 'bold 10px Inter, sans-serif';
-    ctx.fillStyle = '#00d68f';
-    ctx.textAlign = 'center';
-    // Pill background
-    const safeLabel = '✓ GUIDA SICURA';
-    const safeLW = ctx.measureText(safeLabel).width + 14;
-    ctx.fillStyle = 'rgba(0,214,143,0.15)';
-    ctx.beginPath(); ctx.roundRect(xSafe - safeLW/2, pad.top - 28, safeLW, 20, 4); ctx.fill();
-    ctx.fillStyle = '#00d68f';
-    ctx.fillText(safeLabel, xSafe, pad.top - 12);
-
-    // ── MARKER ZERO CROSSING ──
-    ctx.fillStyle = '#ffaa00';
-    ctx.beginPath();
-    ctx.arc(xZero, scaleY(0), 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    // ── PHASE LABELS ──
-    if (peakDelayHours > 0.15) {
-        const midAbsorb = (scaleX(0) + scaleX(peakDelayHours)) / 2;
-        const midY = scaleY(peakBAC * 0.5);
-        ctx.fillStyle = 'rgba(255,170,0,0.45)';
-        ctx.font = 'italic 9px Inter, sans-serif';
+        ctx.font = 'bold 10px Inter, sans-serif';
+        ctx.fillStyle = '#00d68f';
         ctx.textAlign = 'center';
-        ctx.fillText('↑ assorbimento', midAbsorb, midY);
+        // Background pill
+        const safeLabel = '✓ GUIDA SICURA';
+        const safeLW = ctx.measureText(safeLabel).width + 14;
+        ctx.fillStyle = 'rgba(0,214,143,0.15)';
+        ctx.beginPath(); ctx.roundRect(xSafe - safeLW/2, pad.top - 28, safeLW, 20, 4); ctx.fill();
+        ctx.fillStyle = '#00d68f';
+        ctx.fillText(safeLabel, xSafe, pad.top - 12);
     }
-
-    const midElim = (scaleX(peakDelayHours) + scaleX(peakDelayHours + elimTime)) / 2;
-    ctx.fillStyle = 'rgba(255,71,87,0.45)';
-    ctx.font = 'italic 9px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('↓ eliminazione', midElim, scaleY(peakBAC * 0.5));
-
-    if (xZero < xSafe - 10) {
-        ctx.fillStyle = 'rgba(0,214,143,0.5)';
-        ctx.font = '9px Inter, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('buffer', (xZero + xSafe) / 2, scaleY(0) - 16);
-    }
-
-    // ── ETICHETTE ASSI Y ──
-    ctx.fillStyle = 'rgba(255,255,255,0.45)';
-    ctx.font = '500 10px Inter, sans-serif';
+    
+    // ETICHETTE ASSI Y
     ctx.textAlign = 'right';
     for (let bac = 0; bac <= maxBAC; bac += bacStep) {
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.font = '500 10px Inter, sans-serif';
         ctx.fillText(bac.toFixed(bac < 0.1 ? 2 : 1), pad.left - 8, scaleY(bac) + 3);
     }
 
-    // ── ETICHETTE ASSI X ──
-    ctx.textAlign = 'center';
-    for (let t = 0; t <= maxTime; t += 0.5) {
-        if (t % 1 === 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.45)';
-            ctx.font = '500 10px Inter, sans-serif';
-            ctx.fillText(`${t}h`, scaleX(t), H - pad.bottom + 18);
-        } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.2)';
-            ctx.font = '9px Inter, sans-serif';
-            ctx.fillText(`${t}h`, scaleX(t), H - pad.bottom + 16);
-        }
-    }
-
-    // ── TITOLI ASSI ──
+    // TITOLI ASSI
     ctx.fillStyle = 'rgba(255,255,255,0.28)';
     ctx.font = '500 10px Inter, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Ore dall\'ultimo sorso', pad.left + plotW / 2, H - 5);
+    ctx.fillText('Orario (Real-Time)', pad.left + plotW / 2, H - 5);
 
     ctx.save();
     ctx.translate(15, pad.top + plotH / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText('BAC (g/L)', 0, 0);
     ctx.restore();
-
-    // ── LINEE ASSI ──
+    
+    // LINEE ASSI
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -1136,38 +1186,23 @@ function drawBACChart(peakBAC, peakDelayHours, elimTime, totalWaitHours) {
     ctx.stroke();
 }
 
-/**
- * Calcola il BAC a un dato tempo t (ore dall'ultimo sorso).
- * Fase assorbimento [0, peakDelay]: salita con curva logaritmica
- * Fase eliminazione [peakDelay, peakDelay + elimTime]: discesa lineare ordine zero
- */
-function bacAtTime(t, peakBAC, peakDelayHours, elimTime) {
-    if (t <= 0) return 0;
-    if (peakDelayHours < 0.05) {
-        // Nessun assorbimento apprezzabile → discesa diretta
-        return Math.max(peakBAC - PHARMA.BETA_MIN * t, 0);
-    }
-    if (t <= peakDelayHours) {
-        // Fase di assorbimento: curva sigmoide semplificata (normalizzata 0→1)
-        const x = t / peakDelayHours; // 0..1
-        const sigmoid = x * x * (3 - 2 * x); // smoothstep cubico
-        return peakBAC * sigmoid;
-    } else {
-        // Fase di eliminazione
-        const elapsed = t - peakDelayHours;
-        return Math.max(peakBAC - PHARMA.BETA_MIN * elapsed, 0);
-    }
-}
 
 // ═══════════════════════════════════════════════
 // EVENT LISTENERS
 // ═══════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
+    // ── Gestione Sincronizzazione ──
+    attemptSyncFromURL();
 
     // Carica profilo salvato
     loadProfile();
     populateDOMFromProfile();
+
+    // Carica drink salvati
+    loadDrinks();
+    renderConsumedList();
+    updateCalculateButton();
 
     // ── Profilo: input changes ──
     const profileInputIds = ['profileWeight', 'profileHeight', 'foodStartTime', 'foodEndTime', 'workoutStartTime', 'workoutEndTime', 'hydrationWater', 'hydrationGrams'];
@@ -1250,6 +1285,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // ── Clear all ──
     document.getElementById('clearAllBtn').addEventListener('click', clearAllDrinks);
 
+    // ── Sync ──
+    const syncBtn = document.getElementById('syncBtn');
+    if(syncBtn) {
+        syncBtn.addEventListener('click', showSyncModal);
+    }
+
     // ── Calculate ──
     document.getElementById('calculateBtn').addEventListener('click', performCalculation);
 
@@ -1259,13 +1300,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(() => {
             const resultsSection = document.getElementById('results');
-            if (resultsSection && resultsSection.style.display !== 'none') {
-                const params   = calcPharmaParams();
-                const totalA   = getTotalAlcoholGrams();
-                const peakBAC  = calcPeakBAC(totalA, params.vd, params.fBio);
-                const elimTime = calcEliminationTime(peakBAC);
-                const totalWait = calcTotalWaitTime(params.peakDelayHours, elimTime);
-                drawBACChart(peakBAC, params.peakDelayHours, elimTime, totalWait);
+            if (resultsSection && resultsSection.style.display !== 'none' && currentSimulation) {
+                drawBACChartNumerical(currentSimulation.history, currentSimulation.safeDriveTime);
             }
         }, 250);
     });
