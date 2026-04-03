@@ -39,29 +39,20 @@
 
             <div class="profile-card glass-card">
 
-                <!-- Sesso -->
+                <!-- Dati Filippo fissi -->
                 <div class="profile-row">
                     <div class="profile-field">
-                        <label class="profile-label">Sesso Biologico</label>
-                        <div class="sex-toggle">
-                            <label class="sex-option">
-                                <input type="radio" name="sex" value="M" checked>
-                                <span class="sex-btn"><span class="sex-icon">♂</span> Maschio</span>
-                            </label>
-                            <label class="sex-option">
-                                <input type="radio" name="sex" value="F">
-                                <span class="sex-btn"><span class="sex-icon">♀</span> Femmina</span>
-                            </label>
+                        <label class="profile-label">Utente</label>
+                        <div class="profile-input" style="background: rgba(255,255,255,0.02); display: flex; align-items: center; justify-content: space-between;">
+                            <span><span class="sex-icon">♂</span> Filippo</span>
+                            <span style="color: var(--text-muted); font-size: 0.85rem;" id="computedAgeDisplay">15/04/2004</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Dati antropometrici -->
                 <div class="profile-row">
-                    <div class="profile-field">
-                        <label class="profile-label" for="profileAge">Età (anni)</label>
-                        <input type="number" id="profileAge" class="profile-input" value="21" min="16" max="99" placeholder="21">
-                    </div>
+
                     <div class="profile-field">
                         <label class="profile-label" for="profileWeight">Peso (kg)</label>
                         <input type="number" id="profileWeight" class="profile-input" value="72" min="30" max="250" step="0.1" placeholder="72">
@@ -114,6 +105,17 @@
                         <span class="food-factor">f = 0.70 (−30%)</span>
                     </button>
                 </div>
+                
+                <div class="time-field-row" style="margin-top: 1.2rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 1.2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="profile-field">
+                        <label class="profile-label" for="foodStartTime">🕒 Inizio pasto</label>
+                        <input type="datetime-local" id="foodStartTime" class="profile-input">
+                    </div>
+                    <div class="profile-field">
+                        <label class="profile-label" for="foodEndTime">🕒 Fine pasto</label>
+                        <input type="datetime-local" id="foodEndTime" class="profile-input">
+                    </div>
+                </div>
             </div>
 
             <!-- ── Stato Allenamento ── -->
@@ -135,17 +137,43 @@
                 <!-- Dettagli allenamento (visibili solo se workout attivo) -->
                 <div class="workout-extras" id="workoutExtras" style="display:none;">
 
-                    <div class="workout-extra-field">
-                        <label class="profile-label" for="hydrationWater">
-                            💧 Acqua bevuta durante workout (mL)
-                            <span class="field-hint">Es. 800 mL con Hydrafit</span>
+                    <div class="workout-extra-field" style="grid-column: 1 / -1;">
+                        <label class="profile-label">
+                            🕧 Range di Allenamento
                         </label>
-                        <div class="workout-input-row">
-                            <input type="number" id="hydrationWater" class="profile-input" value="800"
-                                   min="0" max="3000" step="50" placeholder="800">
-                            <span class="unit-badge">mL</span>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
+                            <div>
+                                <label class="profile-label" for="workoutStartTime" style="font-size: 0.65rem; color: var(--text-muted);">Inizio</label>
+                                <input type="datetime-local" id="workoutStartTime" class="profile-input">
+                            </div>
+                            <div>
+                                <label class="profile-label" for="workoutEndTime" style="font-size: 0.65rem; color: var(--text-muted);">Fine</label>
+                                <input type="datetime-local" id="workoutEndTime" class="profile-input">
+                            </div>
                         </div>
-                        <p class="field-note">L'acqua assorbita espande il tuo volume di distribuzione, riducendo la concentrazione alcolica. Hydrafit (soluzione ipotonica) è assorbita al ~92%.</p>
+                    </div>
+
+                    <div class="workout-extra-field" style="grid-column: 1 / -1; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 0.8rem; margin-top: 0.2rem;">
+                        <label class="profile-label">
+                            💧 Integrazione Hydrafit (Acqua e Polvere)
+                        </label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
+                            <div>
+                                <label class="profile-label" for="hydrationWater" style="font-size: 0.65rem; color: var(--text-muted);">Acqua bevuta</label>
+                                <div class="workout-input-row">
+                                    <input type="number" id="hydrationWater" class="profile-input" value="800" min="0" max="3000" step="50" placeholder="800">
+                                    <span class="unit-badge">mL</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="profile-label" for="hydrationGrams" style="font-size: 0.65rem; color: var(--text-muted);">Polvere Hydrafit</label>
+                                <div class="workout-input-row">
+                                    <input type="number" id="hydrationGrams" class="profile-input" value="30" min="0" max="200" step="1" placeholder="30">
+                                    <span class="unit-badge">g</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="field-note">La combinazione di polvere e acqua viene calcolata per determinare l'espansione reale della TBW (Volume di Distribuzione) post-allenamento.</p>
                     </div>
 
                     <div class="workout-extra-field">

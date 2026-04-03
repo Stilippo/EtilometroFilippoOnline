@@ -78,16 +78,35 @@ const PRESET_DRINKS = [
 let consumedDrinks = [];
 let drinkIdCounter = 0;
 
+/**
+ * Calcola l'età esatta di Filippo in base alla data di nascita.
+ */
+function calcFilippoAge() {
+    const birthDate = new Date(2004, 3, 15); // 15 Aprile 2004
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const m = today.getMonth() - birthDate.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age;
+}
+
 // Profilo utente con defaults (Filippo da BIA)
 let userProfile = {
     sex:      'M',
-    age:      21,
+    age:      calcFilippoAge(),
     weight:   72.0,
     height:   175.0,
     food:     'empty',   // 'empty' | 'light' | 'full'
+    foodStartTime: '',   // Inizio pasto
+    foodEndTime: '',     // Fine pasto
     workout:  false,
+    workoutStartTime: '',// Inizio allenamento
+    workoutEndTime: '',  // Fine allenamento
     // Integratori durante allenamento
     hydrationWater: 800,     // ml di acqua/sali assunti durante workout (default: 800ml Hydrafit)
+    hydrationGrams: 30,      // g di polvere Hydrafit
     aminoPreWorkout: true,   // NutriXAm aminoacidi pre-allenamento (default: true per Filippo)
     // Farmaci attivi (profilo Filippo — hardcoded per personalizzazione)
     drugs: {
@@ -289,22 +308,34 @@ function loadProfile() {
 }
 
 function syncProfileFromDOM() {
-    const sex     = document.querySelector('input[name="sex"]:checked');
-    const age     = document.getElementById('profileAge');
     const weight  = document.getElementById('profileWeight');
     const height  = document.getElementById('profileHeight');
     const food    = document.querySelector('.food-btn.active');
+    const foodStartTime = document.getElementById('foodStartTime');
+    const foodEndTime   = document.getElementById('foodEndTime');
     const workout = document.getElementById('workoutToggle');
+    const workoutStartTime = document.getElementById('workoutStartTime');
+    const workoutEndTime   = document.getElementById('workoutEndTime');
     const hydrationWater   = document.getElementById('hydrationWater');
+    const hydrationGrams   = document.getElementById('hydrationGrams');
     const aminoPreWorkout  = document.getElementById('aminoToggle');
 
-    if (sex)    userProfile.sex    = sex.value;
-    if (age && age.value)    userProfile.age    = parseFloat(age.value);
+    // Manteniamo dati fissi
+    userProfile.sex = 'M';
+    userProfile.age = calcFilippoAge();
+
     if (weight && weight.value) userProfile.weight = parseFloat(weight.value);
     if (height && height.value) userProfile.height = parseFloat(height.value);
     if (food)   userProfile.food   = food.dataset.food;
+    if (foodStartTime) userProfile.foodStartTime = foodStartTime.value;
+    if (foodEndTime)   userProfile.foodEndTime   = foodEndTime.value;
+    
     if (workout) userProfile.workout = workout.checked;
+    if (workoutStartTime) userProfile.workoutStartTime = workoutStartTime.value;
+    if (workoutEndTime)   userProfile.workoutEndTime   = workoutEndTime.value;
+    
     if (hydrationWater && hydrationWater.value !== '') userProfile.hydrationWater = parseFloat(hydrationWater.value);
+    if (hydrationGrams && hydrationGrams.value !== '') userProfile.hydrationGrams = parseFloat(hydrationGrams.value);
     if (aminoPreWorkout) userProfile.aminoPreWorkout = aminoPreWorkout.checked;
 
     saveProfile();
@@ -327,27 +358,37 @@ function updateProfileDisplay() {
 }
 
 function populateDOMFromProfile() {
-    const sexInput = document.querySelector(`input[name="sex"][value="${userProfile.sex}"]`);
-    if (sexInput) sexInput.checked = true;
-    const age    = document.getElementById('profileAge');
     const weight = document.getElementById('profileWeight');
     const height = document.getElementById('profileHeight');
-    if (age)    age.value    = userProfile.age;
     if (weight) weight.value = userProfile.weight;
     if (height) height.value = userProfile.height;
 
-    // Food buttons
+    // Computed Age Display (only for UI update)
+    const ageDisplay = document.getElementById('computedAgeDisplay');
+    if (ageDisplay) ageDisplay.textContent = `15/04/2004 (${calcFilippoAge()} anni)`;
+
+    // Food buttons & time
     document.querySelectorAll('.food-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.food === userProfile.food);
     });
+    const fStart = document.getElementById('foodStartTime');
+    if (fStart && userProfile.foodStartTime) fStart.value = userProfile.foodStartTime;
+    const fEnd = document.getElementById('foodEndTime');
+    if (fEnd && userProfile.foodEndTime) fEnd.value = userProfile.foodEndTime;
 
-    // Workout toggle
+    // Workout toggle & time
     const workoutToggle = document.getElementById('workoutToggle');
     if (workoutToggle) workoutToggle.checked = userProfile.workout;
+    const wStart = document.getElementById('workoutStartTime');
+    if (wStart && userProfile.workoutStartTime) wStart.value = userProfile.workoutStartTime;
+    const wEnd = document.getElementById('workoutEndTime');
+    if (wEnd && userProfile.workoutEndTime) wEnd.value = userProfile.workoutEndTime;
 
-    // Hydration water
-    const hydEl = document.getElementById('hydrationWater');
-    if (hydEl) hydEl.value = userProfile.hydrationWater;
+    // Hydration water & grams
+    const hydWaterEl = document.getElementById('hydrationWater');
+    if (hydWaterEl) hydWaterEl.value = userProfile.hydrationWater;
+    const hydGramsEl = document.getElementById('hydrationGrams');
+    if (hydGramsEl) hydGramsEl.value = userProfile.hydrationGrams;
 
     // Amino toggle
     const aminoEl = document.getElementById('aminoToggle');
@@ -1129,15 +1170,16 @@ document.addEventListener('DOMContentLoaded', () => {
     populateDOMFromProfile();
 
     // ── Profilo: input changes ──
-    const profileInputIds = ['profileAge', 'profileWeight', 'profileHeight'];
+    const profileInputIds = ['profileWeight', 'profileHeight', 'foodStartTime', 'foodEndTime', 'workoutStartTime', 'workoutEndTime', 'hydrationWater', 'hydrationGrams'];
     profileInputIds.forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener('change', () => { syncProfileFromDOM(); });
-    });
-
-    // ── Profilo: sesso ──
-    document.querySelectorAll('input[name="sex"]').forEach(radio => {
-        radio.addEventListener('change', () => { syncProfileFromDOM(); });
+        if (el) {
+            el.addEventListener('change', () => { syncProfileFromDOM(); });
+            // Add input event for number fields to sync while typing
+            if (el.type === 'number') {
+                el.addEventListener('input', () => { syncProfileFromDOM(); });
+            }
+        }
     });
 
     // ── Cibo: bottoni ──
@@ -1160,12 +1202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ── Acqua allenamento ──
-    const hydrationWaterInput = document.getElementById('hydrationWater');
-    if (hydrationWaterInput) {
-        hydrationWaterInput.addEventListener('change', () => { syncProfileFromDOM(); });
-        hydrationWaterInput.addEventListener('input',  () => { syncProfileFromDOM(); });
-    }
+
 
     // ── Amino toggle ──
     const aminoToggle = document.getElementById('aminoToggle');
