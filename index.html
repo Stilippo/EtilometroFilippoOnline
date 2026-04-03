@@ -25,7 +25,7 @@
                 <span class="tag">⚠️ Caso Peggiore</span>
                 <span class="tag">🚫 Target 0.00 g/L</span>
                 <span class="tag">⚡ Post-Allenamento</span>
-                <span class="tag" style="cursor: pointer; background: rgba(0, 214, 143, 0.2);" id="openSettingsBtn">⚙️ Impostazioni API</span>
+                <span class="tag" style="cursor: pointer; background: rgba(0, 214, 143, 0.2);" id="openSettingsBtn" onclick="document.getElementById('settingsModal').style.display='flex'">⚙️ Impostazioni API</span>
             </div>
         </div>
     </header>
@@ -472,7 +472,7 @@
     <!-- ═══════════════════ MODAL IMPOSTAZIONI API ═══════════════════ -->
     <div id="settingsModal" class="sync-modal-overlay">
         <div class="sync-modal-content glass-card" style="text-align: left; max-width: 500px;">
-            <button class="sync-modal-close" id="closeSettingsBtn">✕</button>
+            <button class="sync-modal-close" id="closeSettingsBtn" onclick="document.getElementById('settingsModal').style.display='none'">✕</button>
             <h3 style="margin-bottom: 0.5rem;">⚙️ Impostazioni Serverless</h3>
             <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem;">Inserisci le chiavi API per sbloccare la sincronizzazione Cloud e l'Intelligenza Artificiale. Le tue chiavi vengono salvate criptate solo nel tuo browser e rimangono private.</p>
             
