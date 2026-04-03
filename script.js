@@ -82,6 +82,7 @@ let currentSimulation = null;
 function saveDrinks() {
     try {
         localStorage.setItem('etilometro_drinks', JSON.stringify(consumedDrinks));
+        pushToGitHub();
     } catch (e) { /* private browsing */ }
 }
 
@@ -178,7 +179,8 @@ let userProfile = {
     age:      calcFilippoAge(),
     weight:   72.0,
     height:   175.0,
-    food:     'empty',   // 'empty' | 'light' | 'full'
+    aiFoodFbio: 1.0,           // Fattore cibo calcolato da IA
+    aiFoodPeakDelay: 0.5,      // Ritardo picco calcolato da IA
     foodStartTime: '',   // Inizio pasto
     foodEndTime: '',     // Fine pasto
     workout:  false,
@@ -250,9 +252,9 @@ function calcPharmaParams() {
 
     const vd = calcVd(tbw, userProfile.sex);
 
-    // Fattore di assorbimento gastrico (f_bio)
-    let fBio         = { empty: PHARMA.FOOD_EMPTY, light: PHARMA.FOOD_LIGHT, full: PHARMA.FOOD_FULL }[userProfile.food];
-    let peakDelayHours = { empty: PHARMA.PEAK_DELAY_EMPTY, light: PHARMA.PEAK_DELAY_LIGHT, full: PHARMA.PEAK_DELAY_FULL }[userProfile.food];
+    // Fattore di assorbimento gastrico (f_bio) determinato da AI (default 1.0)
+    let fBio = userProfile.aiFoodFbio || 1.0;
+    let peakDelayHours = userProfile.aiFoodPeakDelay || 0.5;
 
     // 3. Aminoacidi pre-allenamento (NutriXAm 7.2g)
     // Gli aminoacidi creano un substrato gastrico che rallenta leggermente lo svuotamento
@@ -374,6 +376,7 @@ function formatDateTime(date) {
 function saveProfile() {
     try {
         localStorage.setItem('etilometro_profile', JSON.stringify(userProfile));
+        pushToGitHub();
     } catch (e) { /* private browsing */ }
 }
 
@@ -390,7 +393,6 @@ function loadProfile() {
 function syncProfileFromDOM() {
     const weight  = document.getElementById('profileWeight');
     const height  = document.getElementById('profileHeight');
-    const food    = document.querySelector('.food-btn.active');
     const foodStartTime = document.getElementById('foodStartTime');
     const foodEndTime   = document.getElementById('foodEndTime');
     const workout = document.getElementById('workoutToggle');
@@ -406,7 +408,6 @@ function syncProfileFromDOM() {
 
     if (weight && weight.value) userProfile.weight = parseFloat(weight.value);
     if (height && height.value) userProfile.height = parseFloat(height.value);
-    if (food)   userProfile.food   = food.dataset.food;
     if (foodStartTime) userProfile.foodStartTime = foodStartTime.value;
     if (foodEndTime)   userProfile.foodEndTime   = foodEndTime.value;
     
@@ -429,12 +430,7 @@ function updateProfileDisplay() {
     const fEl   = document.getElementById('displayFbio');
     if (tbwEl) tbwEl.textContent = params.tbw.toFixed(2) + ' L';
     if (vdEl)  vdEl.textContent  = params.vd.toFixed(2)  + ' L';
-    const fLabels = {
-        empty: `${params.fBio.toFixed(2)} (Stomaco vuoto)`,
-        light: `${params.fBio.toFixed(2)} (Pasto leggero)`,
-        full:  `${params.fBio.toFixed(2)} (Pasto abbondante)`,
-    };
-    if (fEl) fEl.textContent = fLabels[userProfile.food] || '—';
+    if (fEl)   fEl.textContent   = params.fBio.toFixed(2) + ' (Calcolato da AI)';
 }
 
 function populateDOMFromProfile() {
@@ -1191,16 +1187,18 @@ function drawBACChartNumerical(history, safeDriveTime) {
 // EVENT LISTENERS
 // ═══════════════════════════════════════════════
 
-document.addEventListener('DOMContentLoaded', () => {
-    // ── Gestione Sincronizzazione ──
+document.addEventListener('DOMContentLoaded', async () => {
+    // ── Gestione Sincronizzazione Locale/Cloud ──
     attemptSyncFromURL();
 
-    // Carica profilo salvato
+    // Carica profilo base
     loadProfile();
-    populateDOMFromProfile();
+    
+    // Tenta di sovrascrivere dal Cloud
+    await fetchFromGitHub();
 
-    // Carica drink salvati
-    loadDrinks();
+    populateDOMFromProfile();
+    loadDrinks(); // Carica drink salvati (da localstorage) solo se fallback
     renderConsumedList();
     updateCalculateButton();
 
@@ -1217,15 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // ── Cibo: bottoni ──
-    document.querySelectorAll('.food-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.food-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            userProfile.food = btn.dataset.food;
-            syncProfileFromDOM();
-        });
-    });
+
 
     // ── Allenamento toggle ──
     const workoutToggle = document.getElementById('workoutToggle');
@@ -1305,4 +1295,206 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }, 250);
     });
+    // ── Settings API Modal ──
+    const savedPat = localStorage.getItem('etilometro_gh_pat');
+    const savedGemini = localStorage.getItem('etilometro_gemini_key');
+    if(savedPat) {
+        const pInp = document.getElementById('githubPatInput');
+        if (pInp) pInp.value = savedPat;
+    }
+    if(savedGemini) {
+        const gInp = document.getElementById('geminiKeyInput');
+        if (gInp) gInp.value = savedGemini;
+    }
+
+    const openSettingsBtn = document.getElementById('openSettingsBtn');
+    const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+    const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+    const settingsModal = document.getElementById('settingsModal');
+
+    if(openSettingsBtn) openSettingsBtn.addEventListener('click', () => settingsModal.style.display = 'flex');
+    if(closeSettingsBtn) closeSettingsBtn.addEventListener('click', () => settingsModal.style.display = 'none');
+    if(saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', async () => {
+            const pat = document.getElementById('githubPatInput').value.trim();
+            const gemini = document.getElementById('geminiKeyInput').value.trim();
+            if(pat) localStorage.setItem('etilometro_gh_pat', pat);
+            else localStorage.removeItem('etilometro_gh_pat');
+            if(gemini) localStorage.setItem('etilometro_gemini_key', gemini);
+            else localStorage.removeItem('etilometro_gemini_key');
+            settingsModal.style.display = 'none';
+            // Inizializza Gist se abbiamo appena inserito un nuovo PAT e non ce n'è uno salvato
+            if (pat && !localStorage.getItem('etilometro_gist_id')) {
+                await initGitHubDatabase();
+            }
+        });
+    }
+
+    // ── AI Food Scanner ──
+    const aiAnalyzeBtn = document.getElementById('aiAnalyzeBtn');
+    if (aiAnalyzeBtn) {
+        aiAnalyzeBtn.addEventListener('click', async () => {
+            const text = document.getElementById('aiFoodText').value.trim();
+            if(!text) return;
+            const apiKey = localStorage.getItem('etilometro_gemini_key');
+            if(!apiKey) {
+                alert("Non hai configurato la Google Gemini API Key. Vai su ⚙️ Impostazioni API.");
+                return;
+            }
+            aiAnalyzeBtn.innerHTML = '<span>⏳</span> Elaborazione...';
+            aiAnalyzeBtn.disabled = true;
+
+            const aiResult = await askGeminiFoodFactor(text, apiKey);
+
+            aiAnalyzeBtn.innerHTML = '<span>🪄</span> Analizza Pasto con Gemini';
+            aiAnalyzeBtn.disabled = false;
+
+            if (aiResult) {
+                userProfile.aiFoodFbio = aiResult.fBio;
+                userProfile.aiFoodPeakDelay = aiResult.peakDelayHours;
+                syncProfileFromDOM();
+                
+                document.getElementById('aiFoodResult').style.display = 'block';
+                document.getElementById('aiFoodExplanation').textContent = aiResult.reason;
+                document.getElementById('aiFoodFbio').textContent = aiResult.fBio.toFixed(2);
+                document.getElementById('aiFoodDelay').textContent = aiResult.peakDelayHours.toFixed(2) + " ore";
+            } else {
+                alert("Errore nell'analisi del cibo tramite IA.");
+            }
+        });
+    }
 });
+
+// ═══════════════════════════════════════════════
+// CLOUD SYSTEM (GITHUB GIST)
+// ═══════════════════════════════════════════════
+
+async function initGitHubDatabase() {
+    const pat = localStorage.getItem('etilometro_gh_pat');
+    if (!pat) return;
+    try {
+        const response = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github.v3+json' },
+            body: JSON.stringify({
+                description: 'Etilometro Online DB',
+                public: false,
+                files: { 'etilometro_db.json': { content: JSON.stringify({ profile: userProfile, drinks: consumedDrinks }) } }
+            })
+        });
+        const data = await response.json();
+        if (data.id) {
+            localStorage.setItem('etilometro_gist_id', data.id);
+            alert("Database Cloud inizializzato con successo!");
+        } else {
+            console.error("Gist init error", data);
+            alert("Errore nell'inizializzazione del Gist. Controlla il PAT.");
+        }
+    } catch(e) {
+        console.error(e);
+        alert("Errore di rete durante la creazione del Gist.");
+    }
+}
+
+let syncTimeout = null;
+async function pushToGitHub() {
+    const pat = localStorage.getItem('etilometro_gh_pat');
+    const gistId = localStorage.getItem('etilometro_gist_id');
+    if (!pat || !gistId) return;
+
+    if (syncTimeout) clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+        try {
+            await fetch(`https://api.github.com/gists/${gistId}`, {
+                method: 'PATCH',
+                headers: { 'Authorization': `token ${pat}`, 'Accept': 'application/vnd.github.v3+json' },
+                body: JSON.stringify({
+                    files: {
+                        'etilometro_db.json': {
+                            content: JSON.stringify({ profile: userProfile, drinks: consumedDrinks })
+                        }
+                    }
+                })
+            });
+            console.log("Sincronizzato sul Cloud GitHub.");
+        } catch (e) { console.error("Sync error", e); }
+    }, 2500); // 2.5 seconds debounce
+}
+
+async function fetchFromGitHub() {
+    const pat = localStorage.getItem('etilometro_gh_pat');
+    const gistId = localStorage.getItem('etilometro_gist_id');
+    if (!pat || !gistId) return;
+
+    try {
+        const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+            headers: { 'Authorization': `token ${pat}` }
+        });
+        const data = await response.json();
+        if (data.files && data.files['etilometro_db.json']) {
+            const contentStr = data.files['etilometro_db.json'].content;
+            const parsed = JSON.parse(contentStr);
+            if (parsed.profile) userProfile = { ...userProfile, ...parsed.profile };
+            if (parsed.drinks) {
+                consumedDrinks = parsed.drinks;
+                drinkIdCounter = consumedDrinks.length > 0 ? Math.max(...consumedDrinks.map(d => d.uid)) : 0;
+            }
+            populateDOMFromProfile();
+            renderConsumedList();
+            updateCalculateButton();
+        }
+    } catch (e) {
+        console.error("Fetch DB error", e);
+    }
+}
+
+// ═══════════════════════════════════════════════
+// ARTIFICIAL INTELLIGENCE (GEMINI)
+// ═══════════════════════════════════════════════
+
+async function askGeminiFoodFactor(foodDescription, apiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    const systemInstruction = `Sei un esperto nutrizionista farmacocinetico. L'utente ti descriverà il suo pasto. Il tuo compito è determinare il fattore di assorbimento gastrico (fBio) e il ritardo di picco alcolemico (peakDelayHours).
+Regole:
+- fBio deve essere tra 0.70 (pasti molto pesanti/grassi/abbondanti) e 1.0 (stomaco vuoto).
+- peakDelayHours deve essere tra 0.5 (stomaco vuoto) e 1.5 (pasti molto abbondanti).
+DEVI rispondere *ESCLUSIVAMENTE* outputtando un JSON valido con questa esatta struttura e senza formattazione aggiuntiva markdown:
+{
+  "fBio": 0.85,
+  "peakDelayHours": 1.0,
+  "reason": "breve spiegazione nutrizionale..."
+}`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                system_instruction: { parts: { text: systemInstruction } },
+                contents: [
+                    { parts: [{ text: foodDescription }] }
+                ],
+                generationConfig: {
+                    responseMimeType: "application/json"
+                }
+            })
+        });
+
+        const jsonResp = await response.json();
+        
+        if (jsonResp.error) {
+            console.error(jsonResp.error);
+            return null;
+        }
+        
+        if (jsonResp.candidates && jsonResp.candidates[0].content) {
+            let resText = jsonResp.candidates[0].content.parts[0].text;
+            return JSON.parse(resText);
+        }
+    } catch(err) {
+        console.error("Gemini err:", err);
+        return null;
+    }
+    return null;
+}

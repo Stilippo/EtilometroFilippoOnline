@@ -24,8 +24,8 @@
                 <span class="tag">🔬 Formula di Watson</span>
                 <span class="tag">⚠️ Caso Peggiore</span>
                 <span class="tag">🚫 Target 0.00 g/L</span>
-                <span class="tag">🍽️ Fattore Cibo</span>
                 <span class="tag">⚡ Post-Allenamento</span>
+                <span class="tag" style="cursor: pointer; background: rgba(0, 214, 143, 0.2);" id="openSettingsBtn">⚙️ Impostazioni API</span>
             </div>
         </div>
     </header>
@@ -80,33 +80,31 @@
                 </div>
             </div>
 
-            <!-- ── Stato Stomaco ── -->
+            <!-- ── Stato Stomaco (AI) ── -->
             <div class="context-card glass-card">
-                <h3 class="context-title"><span>🍽️</span> Cosa hai mangiato?</h3>
-                <p class="context-desc">Il cibo rallenta l'assorbimento gastrico e riduce il picco alcolemico. Scegli la condizione più vicina alla realtà.</p>
+                <h3 class="context-title"><span>🍽️</span> Cosa hai mangiato? <span class="ai-badge">🤖 AI Powered</span></h3>
+                <p class="context-desc">L'intelligenza artificiale analizzerà il tuo pasto per calcolare il rallentamento dello svuotamento gastrico e il fattore di assorbimento (f). Descrivi cosa hai mangiato.</p>
 
-                <div class="food-selector">
-                    <button class="food-btn active" data-food="empty" id="foodEmpty">
-                        <span class="food-icon">🚫</span>
-                        <span class="food-name">Stomaco Vuoto</span>
-                        <span class="food-detail">Assorbimento max · picco in ~30 min</span>
-                        <span class="food-factor">f = 1.00</span>
+                <div class="ai-food-input-group" style="margin-top: 1rem;">
+                    <textarea id="aiFoodText" class="profile-input" placeholder="Es. Una pizza bufalina, un tiramisù e due bicchieri d'acqua..." rows="3" style="width: 100%; border-radius: 8px; resize: vertical; margin-bottom: 0.5rem;"></textarea>
+                    
+                    <button id="aiAnalyzeBtn" class="btn btn-secondary" type="button" style="width: 100%;">
+                        <span>🪄</span> Analizza Pasto con Gemini
                     </button>
-                    <button class="food-btn" data-food="light" id="foodLight">
-                        <span class="food-icon">🥗</span>
-                        <span class="food-name">Pasto Leggero</span>
-                        <span class="food-detail">Insalata, frutta, snack · picco in ~60 min</span>
-                        <span class="food-factor">f = 0.85 (−15%)</span>
-                    </button>
-                    <button class="food-btn" data-food="full" id="foodFull">
-                        <span class="food-icon">🍖</span>
-                        <span class="food-name">Pasto Abbondante</span>
-                        <span class="food-detail">Pasta, carne, pizza · picco in ~90 min</span>
-                        <span class="food-factor">f = 0.70 (−30%)</span>
-                    </button>
+                    
+                    <!-- AI Response Area -->
+                    <div id="aiFoodResult" style="display: none; margin-top: 1rem; padding: 1rem; border-left: 3px solid #00d68f; background: rgba(0,214,143,0.05); border-radius: 4px;">
+                        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.3rem;">Analisi completata</div>
+                        <div id="aiFoodExplanation" style="font-size: 0.9rem; margin-bottom: 0.8rem;"></div>
+                        <div style="display: flex; gap: 1rem; font-size: 0.85rem;">
+                            <div>Fattore Assorbimento: <strong id="aiFoodFbio" style="color: #ffaa00;"></strong></div>
+                            <div>Ritardo Picco: <strong id="aiFoodDelay" style="color: #ffaa00;"></strong></div>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="time-field-row" style="margin-top: 1.2rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 1.2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+
+                <!-- Dettagli pasto -->
+                <div class="profile-row" style="margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 1rem;">
                     <div class="profile-field">
                         <label class="profile-label" for="foodStartTime">🕒 Inizio pasto</label>
                         <input type="datetime-local" id="foodStartTime" class="profile-input">
@@ -470,6 +468,29 @@
             </div>
         </div>
     </footer>
+
+    <!-- ═══════════════════ MODAL IMPOSTAZIONI API ═══════════════════ -->
+    <div id="settingsModal" class="sync-modal-overlay">
+        <div class="sync-modal-content glass-card" style="text-align: left; max-width: 500px;">
+            <button class="sync-modal-close" id="closeSettingsBtn">✕</button>
+            <h3 style="margin-bottom: 0.5rem;">⚙️ Impostazioni Serverless</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1.5rem;">Inserisci le chiavi API per sbloccare la sincronizzazione Cloud e l'Intelligenza Artificiale. Le tue chiavi vengono salvate criptate solo nel tuo browser e rimangono private.</p>
+            
+            <div style="margin-bottom: 1.2rem;">
+                <label for="githubPatInput" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-primary);">GitHub Personal Access Token (Gist scope)</label>
+                <input type="password" id="githubPatInput" style="width:100%; padding: 0.6rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; font-size: 0.8rem;" placeholder="ghp_xxxxxxxxxxxx">
+                <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.3rem;">Serve per salvare automaticamente il database delle tue bevute online su un file Gist segreto.</p>
+            </div>
+            
+            <div style="margin-bottom: 1.5rem;">
+                <label for="geminiKeyInput" style="display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.4rem; color: var(--text-primary);">Google Gemini API Key</label>
+                <input type="password" id="geminiKeyInput" style="width:100%; padding: 0.6rem; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: white; font-size: 0.8rem;" placeholder="AIzaSy...">
+                <p style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.3rem;">Serve per alimentare la funzione di analisi del cibo (AI Powered).</p>
+            </div>
+            
+            <button id="saveSettingsBtn" class="btn btn-primary" style="width: 100%;">Salva Impostazioni</button>
+        </div>
+    </div>
 
     <script src="script.js"></script>
 </body>
