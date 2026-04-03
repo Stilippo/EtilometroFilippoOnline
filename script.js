@@ -1456,7 +1456,7 @@ async function fetchFromGitHub() {
 // ═══════════════════════════════════════════════
 
 async function askGeminiFoodFactor(foodDescription, apiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     
     const systemInstruction = `Sei un esperto nutrizionista farmacocinetico. L'utente ti descriverà il suo pasto. Il tuo compito è determinare il fattore di assorbimento gastrico (fBio) e il ritardo di picco alcolemico (peakDelayHours).
 Regole:
